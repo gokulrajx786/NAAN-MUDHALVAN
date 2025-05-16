@@ -13,23 +13,31 @@ from xgboost import XGBClassifier
 from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score, roc_auc_score
 import shap
 
-
 st.set_page_config(page_title="Customer Churn Predictor", layout="wide")
 st.title("📉 Customer Churn Prediction using Machine Learning")
 
-
 st.sidebar.header("🛠️ Application Menu")
-option = st.sidebar.selectbox("Select the section", ["Upload Dataset", "Model Evaluation", "SHAP Explainability"])
+option = st.sidebar.selectbox("Select the section", [
+    "Data Overview",
+    "Preprocessing Overview",
+    "Model Evaluation",
+    "SHAP Explainability"
+])
 
-uploaded_file = st.sidebar.file_uploader("Upload your churn dataset (CSV)", type=["csv"])
+uploaded_file = st.sidebar.file_uploader("Upload your dataset (CSV)", type=["csv"])
 
 if uploaded_file is not None:
     df = pd.read_csv(uploaded_file)
-    st.sidebar.subheader("Raw Data Preview")
-    st.sidebar.write(df.head())
 else:
     st.sidebar.warning("Please upload a dataset to get started!")
 
+def preprocess_data(df):
+    df_cleaned = df.drop(columns=[col for col in ['RowNumber', 'CustomerId', 'Surname'] if col in df.columns])
+    le = LabelEncoder()
+    for col in ['Geography', 'Gender']:
+        if col in df_cleaned.columns:
+            df_cleaned[col] = le.fit_transform(df_cleaned[col])
+    return df_cleaned
 
 @st.cache_resource
 def train_all_models(X_train_scaled, y_train):
@@ -56,34 +64,41 @@ def compute_shap_values(_model, X_train_scaled, X_test_scaled):
     shap_values = explainer.shap_values(X_test_scaled[:50])  
     return shap_values
 
-
-if option == "Upload Dataset" and uploaded_file is not None:
+if option == "Data Overview" and uploaded_file is not None:
     st.header("📊 Dataset Overview")
-    st.subheader("Raw Data")
+
+    st.subheader("📂 Raw Data ")
     st.write(df.head())
 
-    df.drop(columns=[col for col in ['RowNumber', 'CustomerId', 'Surname'] if col in df.columns], inplace=True)
-    le = LabelEncoder()
-    for col in ['Geography', 'Gender']:
-        if col in df.columns:
-            df[col] = le.fit_transform(df[col])
-
     st.subheader("📊 Feature Correlation Heatmap")
+    df_cleaned = preprocess_data(df) 
     fig, ax = plt.subplots(figsize=(12, 8))
-    sns.heatmap(df.corr(), annot=True, cmap='coolwarm', linewidths=0.5, ax=ax)
+    sns.heatmap(df_cleaned.corr(), annot=True, cmap='coolwarm', linewidths=0.5, ax=ax)
     st.pyplot(fig)
 
+elif option == "Preprocessing Overview" and uploaded_file is not None:
+    st.header("🧹 Data Preprocessing Overview")
+
+    st.subheader("📂 Before Transformation (Raw Data)")
+    st.write(df.head())
+
+    df_cleaned = preprocess_data(df)
+    st.subheader("✅ After Preprocessing (Label Encoding + Column Removal)")
+    st.write(df_cleaned.head())
+
+    feature_names = df_cleaned.drop('Exited', axis=1).columns
+    scaler = StandardScaler()
+    X_scaled = pd.DataFrame(scaler.fit_transform(df_cleaned.drop('Exited', axis=1)), columns=feature_names)
+
+    st.subheader("📐 After Scaling (StandardScaler Applied)")
+    st.write(X_scaled.head())
 
 elif option == "Model Evaluation" and uploaded_file is not None:
     st.header("🏆 Model Performance Comparison")
 
-    df.drop(columns=[col for col in ['RowNumber', 'CustomerId', 'Surname'] if col in df.columns], inplace=True)
-    le = LabelEncoder()
-    for col in ['Geography', 'Gender']:
-        df[col] = le.fit_transform(df[col])
-
-    X = df.drop('Exited', axis=1)
-    y = df['Exited']
+    df_cleaned = preprocess_data(df)
+    X = df_cleaned.drop('Exited', axis=1)
+    y = df_cleaned['Exited']
     feature_names = X.columns
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
     scaler = StandardScaler()
@@ -110,17 +125,12 @@ elif option == "Model Evaluation" and uploaded_file is not None:
     result_df = pd.DataFrame(model_results).T.round(3).sort_values(by="Accuracy", ascending=False)
     st.dataframe(result_df)
 
-
 elif option == "SHAP Explainability" and uploaded_file is not None:
     st.header("🔍 SHAP Explainability for XGBoost")
 
-    df.drop(columns=[col for col in ['RowNumber', 'CustomerId', 'Surname'] if col in df.columns], inplace=True)
-    le = LabelEncoder()
-    for col in ['Geography', 'Gender']:
-        df[col] = le.fit_transform(df[col])
-
-    X = df.drop('Exited', axis=1)
-    y = df['Exited']
+    df_cleaned = preprocess_data(df)
+    X = df_cleaned.drop('Exited', axis=1)
+    y = df_cleaned['Exited']
     feature_names = X.columns
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
     scaler = StandardScaler()
