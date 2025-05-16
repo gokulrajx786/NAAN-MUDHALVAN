@@ -13,15 +13,16 @@ from xgboost import XGBClassifier
 from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score, roc_auc_score
 import shap
 
-st.set_page_config(page_title="Customer Churn Predictor", layout="wide")
+     st.set_page_config(page_title="Customer Churn Predictor", layout="wide")
 st.title("📉 Customer Churn Prediction using Machine Learning")
 
-st.sidebar.header("🛠️ Application Menu")
+st.sidebar.header("🛠 Application Menu")
 option = st.sidebar.selectbox("Select the section", [
     "Data Overview",
     "Preprocessing Overview",
     "Model Evaluation",
-    "SHAP Explainability"
+    "SHAP Explainability",
+    "Customer Prediction"
 ])
 
 uploaded_file = st.sidebar.file_uploader("Upload your dataset (CSV)", type=["csv"])
@@ -60,8 +61,8 @@ def train_xgboost_model(X_train_scaled, y_train):
 
 @st.cache_resource
 def compute_shap_values(_model, X_train_scaled, X_test_scaled):
-    explainer = shap.TreeExplainer(_model)
-    shap_values = explainer.shap_values(X_test_scaled[:50])  
+    explainer = shap.Explainer(_model)
+    shap_values = explainer(X_test_scaled[:50])
     return shap_values
 
 if option == "Data Overview" and uploaded_file is not None:
@@ -147,3 +148,44 @@ elif option == "SHAP Explainability" and uploaded_file is not None:
     fig = plt.figure(figsize=(10, 6))
     shap.summary_plot(shap_values, features=X_test_scaled[:50], feature_names=feature_names, plot_type="bar", show=False)
     st.pyplot(fig)
+
+elif option == "Customer Prediction" and uploaded_file is not None:
+    st.header("🔸 Customer Prediction For Random Customers")
+
+    df_cleaned = preprocess_data(df)
+    X = df_cleaned.drop('Exited', axis=1)
+    y = df_cleaned['Exited']
+    feature_names = X.columns
+
+    scaler = StandardScaler()
+    X_scaled = scaler.fit_transform(X)
+    xgb_model = train_xgboost_model(X_scaled, y)
+
+    sample_df = X.sample(n=10, random_state=42)
+    sample_scaled = scaler.transform(sample_df)
+    sample_preds = xgb_model.predict(sample_scaled)
+    sample_probs = xgb_model.predict_proba(sample_scaled)[:, 1]
+
+    sample_results = sample_df.copy()
+    sample_results['Prediction'] = sample_preds
+    sample_results['Churn Probability'] = sample_probs.round(3)
+    sample_results['Prediction Label'] = sample_results['Prediction'].map({0: 'Not Churn', 1: 'Churn'})
+
+    st.dataframe(sample_results)
+
+    selected_index = st.selectbox("Select a customer index to see top factors influencing prediction", sample_results.index)
+
+    explainer = shap.Explainer(xgb_model)
+    shap_values = explainer(sample_scaled)
+
+    st.subheader(f"🔍 Top Factors Influencing Prediction for Customer Index: {selected_index}")
+    
+    top_shap_vals = shap_values[sample_results.index.get_loc(selected_index)].values
+    top_feature_indices = np.argsort(np.abs(top_shap_vals))[-5:][::-1]  
+    top_features = sample_df.columns[top_feature_indices]
+    top_values = top_shap_vals[top_feature_indices]
+
+    st.markdown("### Top 5 Factors Influencing Prediction:")
+    for feat, val in zip(top_features, top_values):
+        impact = "increases" if val > 0 else "decreases"
+        st.write(f"**{feat}**: {impact} the chance of churn by {abs(val):.4f}")
